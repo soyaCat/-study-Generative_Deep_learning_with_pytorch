@@ -8,18 +8,25 @@ from torch.utils.data import DataLoader
 
 from PIL import Image
 import matplotlib.pyplot as plt
+import os
+import datetime
 
 batch_size = 1024
 lr = (1e-5)*5
-trainEpochs = 200
-testEpochs = 10
+trainEpochs = 1
+showPointEpochs = 10
+testEpochs = 3
 totalEpochs = trainEpochs + testEpochs
 
 train_mode = True
-load_model = False
+load_model = True
+save_model = True
+date_time = datetime.datetime.now().strftime("%Y%m%d-%H-%M-%S")
+save_path = "./saved_VAE_model/"+date_time+"/model/"
+load_path = "./saved_VAE_model/"+"20210124-19-54-26"+"/model/"
 
 print_interval = 100
-r_loss_factor = 10000
+r_loss_factor = 1000
 
 mnist_train = dset.MNIST("./", train=True, transform=transforms.ToTensor(),
                         target_transform=None, download=False)
@@ -83,14 +90,32 @@ class AutoEncoder_model(nn.Module):
         decoder_out = self.Decoder(reshape_for_decoder)
         return decoder_out, mu_out, log_var_out
 
+    def forward_all_with_point(self, x):
+        out = self.Encoder(x)
+        out = out.view(batch_size, -1)
+        mu_out = self.mu(out)
+        log_var_out = self.log_var(out)
+        encoder_out = mu_out + torch.exp(log_var_out/2) * self.epsilon
+        d_fc1 = self.d_fc1(encoder_out)
+        reshape_for_decoder = torch.reshape(d_fc1, shape=[-1, 64, 4, 4]).to(self.device)
+        decoder_out = self.Decoder(reshape_for_decoder)
+        return decoder_out, encoder_out
+
 class VAE():
     def __init__(self, device):
         self.device = device
         self.batch_size = batch_size
         self.model = AutoEncoder_model(device, self.batch_size).to(self.device)
         self.r_loss = nn.MSELoss()
+        self.kl_loss = nn.KLDivLoss(reduction = 'batchmean')
         self.r_loss_factor = r_loss_factor
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr = lr)
+        self.load_model = load_model
+        self.load_path = load_path
+        if self.load_model == True:
+            print("model loaded!")
+            self.model.load_state_dict(torch.load(self.load_path+"state_dict_model.pt"))
+
 
     def train_model(self, train_loader):
         self.model.train()
@@ -115,42 +140,75 @@ class VAE():
 
         return torch.mean(totalLoss), torch.mean(r_loss), torch.mean(kl_loss)
 
-
-    def get_result(self, train_loader):
+    def get_result(self, img):
         self.model.eval()
         with torch.no_grad():
-            for image, label in train_loader:
-                x = image.to(self.device)
+            x = img.to(self.device)
             output, _, _ = self.model.forward_all(x)
             return x[0], output[0]
+
+    def get_result_with_point(self, img):
+        self.model.eval()
+        with torch.no_grad():
+            x = img.to(self.device)
+            output, point_arr = self.model.forward_all_with_point(x)
+            return point_arr
+            
     
 
 
 
 
 if __name__ == '__main__':
+    if save_model == True:
+        os.makedirs(save_path)
+    
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     VAE = VAE(device)
     image_process = image_process()
 
     for epoch in range(trainEpochs):
         totalLoss, r_loss, kl_loss = VAE.train_model(train_loader)
+        print("")
+        print("epoch: ", epoch)
         print(totalLoss)
         print(r_loss)
         print(kl_loss)
 
+    if save_model == True:
+        torch.save(VAE.model.state_dict(), save_path+"state_dict_model.pt")
+        print("Model saved..")
+    
+    for epoch in range(showPointEpochs):
+        for image, label in train_loader:
+            point_arr = VAE.get_result_with_point(image)
+            #print(point_arr.size())#torch.Size([1024, 2])
+            #print(label.size())#torch.Size([1024])
+            print("show points...")
+            point_arr = point_arr.cpu().data.numpy()
+            axis_x_list = []
+            axis_y_list = []
+            number_list = []
+            for index, number in enumerate(label):
+                axis_x_list.append(point_arr[index][0])
+                axis_y_list.append(point_arr[index][1])
+                number_list.append(number)
+            plt.scatter(axis_x_list, axis_y_list, c = number_list, s = 2)
+            plt.show()
+
+
+
+
     for epoch in range(testEpochs):
-        img, gen_img = VAE.get_result(train_loader)
-        print(img.size())
-        print(gen_img.size())
+        for image, label in train_loader:
+            img, gen_img = VAE.get_result(image)
+            img = image_process.image_postprocess(img.cpu()).data.numpy()
 
-        img = image_process.image_postprocess(img.cpu()).data.numpy()
+            plt.figure(figsize=(5,5))
+            plt.imshow(img)
+            plt.show()
 
-        plt.figure(figsize=(5,5))
-        plt.imshow(img)
-        plt.show()
-
-        gen_img = image_process.image_postprocess(gen_img.cpu()).data.numpy()
-        plt.figure(figsize=(5,5))
-        plt.imshow(gen_img)
-        plt.show()
+            gen_img = image_process.image_postprocess(gen_img.cpu()).data.numpy()
+            plt.figure(figsize=(5,5))
+            plt.imshow(gen_img)
+            plt.show()
