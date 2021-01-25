@@ -11,21 +11,20 @@ import matplotlib.pyplot as plt
 import os
 import datetime
 
-batch_size = 1024
+batch_size = 512
 lr = (1e-5)*5
-trainEpochs = 1
-showPointEpochs = 10
+trainEpochs = 100
+showPointEpochs = 0
 testEpochs = 3
 totalEpochs = trainEpochs + testEpochs
 
 train_mode = True
-load_model = True
+load_model = False
 save_model = True
 date_time = datetime.datetime.now().strftime("%Y%m%d-%H-%M-%S")
 save_path = "./saved_VAE_model/"+date_time+"/model/"
-load_path = "./saved_VAE_model/"+"20210124-19-54-26"+"/model/"
+load_path = "./saved_VAE_model/"+"20210124-23-33-26"+"/model/"
 
-print_interval = 100
 r_loss_factor = 1000
 
 mnist_train = dset.MNIST("./", train=True, transform=transforms.ToTensor(),
@@ -106,8 +105,7 @@ class VAE():
         self.device = device
         self.batch_size = batch_size
         self.model = AutoEncoder_model(device, self.batch_size).to(self.device)
-        self.r_loss = nn.MSELoss()
-        self.kl_loss = nn.KLDivLoss(reduction = 'batchmean')
+        self.r_loss = nn.MSELoss(reduction = 'mean')
         self.r_loss_factor = r_loss_factor
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr = lr)
         self.load_model = load_model
@@ -126,9 +124,8 @@ class VAE():
             x = image.to(self.device)
             y_, mu_out, log_var_out = self.model.forward_all(x)
 
-            r_loss = self.r_loss_factor * self.r_loss(x, y_)
-            kl_loss = -0.5*torch.sum(1+log_var_out - torch.square(mu_out)-torch.exp(log_var_out), axis=1)
-            kl_loss = torch.mean(kl_loss)
+            r_loss = self.r_loss_factor*self.r_loss(y_, x)
+            kl_loss = -0.5*torch.sum(1+log_var_out-torch.square(mu_out)-torch.exp(log_var_out))
 
             totalLoss = r_loss + kl_loss
             totalLoss.backward()
@@ -180,21 +177,29 @@ if __name__ == '__main__':
         print("Model saved..")
     
     for epoch in range(showPointEpochs):
+        axis_x_list = []
+        axis_y_list = []
+        number_list = []
+        color_table = ['b','g','r','c','m','y','k','tan','brown','blueviolet']
+        i = 0
         for image, label in train_loader:
+            i+=1
             point_arr = VAE.get_result_with_point(image)
             #print(point_arr.size())#torch.Size([1024, 2])
             #print(label.size())#torch.Size([1024])
-            print("show points...")
+            print("stack points...")
             point_arr = point_arr.cpu().data.numpy()
-            axis_x_list = []
-            axis_y_list = []
-            number_list = []
             for index, number in enumerate(label):
                 axis_x_list.append(point_arr[index][0])
                 axis_y_list.append(point_arr[index][1])
-                number_list.append(number)
-            plt.scatter(axis_x_list, axis_y_list, c = number_list, s = 2)
-            plt.show()
+                number_list.append(color_table[number])
+            if i % 5 == 0:
+                i = 0
+                plt.scatter(axis_x_list, axis_y_list, c = number_list, s = 2)
+                plt.show()
+                axis_x_list = []
+                axis_y_list = []
+                number_list = []
 
 
 
