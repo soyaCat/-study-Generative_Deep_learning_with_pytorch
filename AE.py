@@ -156,8 +156,8 @@ if __name__ == '__main__':
         for index,[image, label] in enumerate(train_loader):
             i+=1
             encoder_out = AE.get_result_with_point(image)
-            print(encoder_out.size())#torch.Size([1024, 2])
-            print(label.size())#torch.Size([1024])
+            #print(encoder_out.size())#torch.Size([1024, 2])
+            #print(label.size())#torch.Size([1024])
             print("stack points...")
             encoder_out = encoder_out.cpu().data.numpy()
             for index, number in enumerate(label):
