@@ -12,12 +12,12 @@ import os
 import datetime
 import time
 
-batch_size = 512
-lr = (1e-4)*5
-trainEpochs = 100
+batch_size = 32
+lr = 0.0005
+trainEpochs = 200
 showPointEpochs = 1
 testEpochs = 1
-r_loss_factor = 1000
+r_loss_factor = 100
 
 train_mode = True
 load_model = False
@@ -76,6 +76,19 @@ class AutoEncoder_model(nn.Module):
             nn.ConvTranspose2d(32, 1, 3, stride=1, padding=1),
             nn.Sigmoid()
         )
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight.data)
+                m.bias.data.fill_(0)
+
+            elif isinstance(m, nn.Linear):
+                nn.init.kaiming_normal_(m.weight.data)
+                m.bias.data.fill_(0)
+
+            elif isinstance(m, nn.ConvTranspose2d):
+                nn.init.kaiming_normal_(m.weight.data)
+                m.bias.data.fill_(0)
 
     def forward(self, x):
         out = self.Encoder(x)
@@ -156,7 +169,6 @@ if __name__ == '__main__':
         print(total_loss)
         print(r_loss)
         print(kl_loss)
-
     if save_model == True:
         os.makedirs(save_path)
 
