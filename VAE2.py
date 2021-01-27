@@ -17,7 +17,7 @@ lr = 0.0005
 trainEpochs = 200
 showPointEpochs = 1
 testEpochs = 1
-r_loss_factor = 100
+r_loss_factor = 1000
 
 train_mode = True
 load_model = False
