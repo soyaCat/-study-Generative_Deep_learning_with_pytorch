@@ -28,7 +28,7 @@ save_path = "./saved_VAE2_model/"+date_time+"/model/"
 load_path = "./saved_VAE2_model/"+"20210124-23-33-26"+"/model/"
 
 mnist_train = dset.MNIST("./", train=True, transform=transforms.ToTensor(),
-                        target_transform=None, download=False)
+                        target_transform=None, download=True)
 train_loader = torch.utils.data.DataLoader(mnist_train, batch_size=batch_size, 
                                             shuffle=True, num_workers=2, drop_last=True)
 

@@ -12,22 +12,23 @@ import os
 import datetime
 import time
 
-batch_size = 32
-lr = 0.0005
-trainEpochs = 200
+batch_size = 128
+lr = 0.001
+trainEpochs = 20
 showPointEpochs = 1
 testEpochs = 1
-r_loss_factor = 1000
+r_loss_factor = 100
+z_dims = 2
 
 train_mode = True
 load_model = False
-save_model = True
+save_model = False
 date_time = datetime.datetime.now().strftime("%Y%m%d-%H-%M-%S")
 save_path = "./saved_VAE2_model/"+date_time+"/model/"
 load_path = "./saved_VAE2_model/"+"20210124-23-33-26"+"/model/"
 
 mnist_train = dset.MNIST("./", train=True, transform=transforms.ToTensor(),
-                        target_transform=None, download=False)
+                        target_transform=None, download=True)
 train_loader = torch.utils.data.DataLoader(mnist_train, batch_size=batch_size, 
                                             shuffle=True, num_workers=2, drop_last=True)
 
@@ -39,10 +40,10 @@ class image_process():
         return img
 
 class AutoEncoder_model(nn.Module):
-    def __init__(self, device, batch_size):
+    def __init__(self, device, z_dims):
         super(AutoEncoder_model, self).__init__()
         self.device = device
-        self.batch_size = batch_size
+        self.z_dims = z_dims
         self.Encoder = nn.Sequential(
             nn.Conv2d(1, 32, 3, stride=1, padding=1),
             nn.BatchNorm2d(32),
@@ -58,10 +59,12 @@ class AutoEncoder_model(nn.Module):
             nn.LeakyReLU()
         )
         
-        self.mu = nn.Linear(1024,2)
-        self.log_var = nn.Linear(1024,2)
-        self.epsilon = torch.randn(self.batch_size, 2, device=self.device)
-        self.d_fc1 = nn.Linear(2,1024)
+        self.mu = nn.Linear(1024, self.z_dims)
+        self.log_var = nn.Linear(1024, self.z_dims)
+        self.d_fc1 = nn.Sequential(
+            nn.Linear(self.z_dims, 1024),
+            nn.ReLU(),
+        )
 
         self.Decoder = nn.Sequential(
             nn.ConvTranspose2d(64, 64, 3, stride=2, padding=1),
@@ -77,35 +80,34 @@ class AutoEncoder_model(nn.Module):
             nn.Sigmoid()
         )
 
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight.data)
-                m.bias.data.fill_(0)
-
-            elif isinstance(m, nn.Linear):
-                nn.init.kaiming_normal_(m.weight.data)
-                m.bias.data.fill_(0)
-
-            elif isinstance(m, nn.ConvTranspose2d):
-                nn.init.kaiming_normal_(m.weight.data)
-                m.bias.data.fill_(0)
 
     def forward(self, x):
         out = self.Encoder(x)
-        out = out.view(batch_size, -1)
+        out = out.view(out.size()[0], -1)
         mu_out = self.mu(out)
-        log_var_out = self.log_var(out)
-        encoder_out = mu_out + torch.exp(log_var_out/2) * self.epsilon
+        log_var_out = torch.exp(0.5*self.log_var(out))
+        epsilon = torch.randn_like(log_var_out).to(self.device)
+        encoder_out = mu_out + log_var_out * epsilon
+
         decoder_input = self.d_fc1(encoder_out)
-        decoder_input = torch.reshape(decoder_input, shape=[-1, 64, 4, 4]).to(self.device)
+        decoder_input = torch.reshape(decoder_input, shape=[-1,64, 4, 4]).to(self.device)
         decoder_out = self.Decoder(decoder_input)
         return decoder_out, encoder_out, mu_out, log_var_out
+
+    def decode(self, x):
+        decoder_input = self.d_fc1(x)
+        decoder_input = torch.reshape(decoder_input, shape=[-1,64, 4, 4]).to(self.device)
+        decoder_out = self.Decoder(decoder_input)
+        decoder_out = torch.reshape(decoder_out, shape=[-1, 1, 28, 28]).to(self.device)
+        return decoder_out
+
 
 class VAE():
     def __init__(self, device):
         self.device = device
         self.batch_size = batch_size
-        self.model = AutoEncoder_model(device, self.batch_size).to(self.device)
+        self.z_dims = z_dims
+        self.model = AutoEncoder_model(device, z_dims).to(self.device)
         self.r_loss_factor = r_loss_factor
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr = lr)
         self.load_model = load_model
@@ -114,6 +116,11 @@ class VAE():
             print("model loaded!")
             self.model.load_state_dict(torch.load(self.load_path+"state_dict_model.pt"))
 
+    def loss_func(self, decoder_out, image, mu_out, log_var_out):
+            BCE = nn.functional.binary_cross_entropy(decoder_out, image, reduction='sum')
+            KLD = -0.5 * torch.sum(1 + log_var_out - mu_out.pow(2) - log_var_out.exp())
+
+            return BCE + KLD, BCE, KLD
 
     def train_model(self, train_loader):
         self.model.train()
@@ -122,19 +129,17 @@ class VAE():
         total_loss_list = []
         for image, label in train_loader:
             x = image.to(self.device)
+            self.optimizer.zero_grad()
             decoder_out, encoder_out ,mu_out, log_var_out = self.model.forward(x)
 
-            r_loss = torch.mean(torch.square(x-decoder_out), axis = [1,2,3])
-            r_loss = self.r_loss_factor*r_loss
-            kl_loss = -0.5*torch.sum(1+log_var_out-torch.square(mu_out)-torch.exp(log_var_out), axis = 1)
-            total_loss = r_loss+kl_loss
-            total_loss = torch.mean(total_loss)
+            total_loss, BCE_loss, KLD_loss = self.loss_func(decoder_out, x, mu_out, log_var_out)
+            #print(total_loss) 27239
             total_loss.backward()
             self.optimizer.step()
 
             total_loss_list.append(total_loss)
-            r_loss_list.append(r_loss)
-            kl_loss_list.append(kl_loss)
+            r_loss_list.append(BCE_loss)
+            kl_loss_list.append(KLD_loss)
 
         return torch.mean(torch.stack(total_loss_list)), torch.mean(torch.stack(r_loss_list)), torch.mean(torch.stack(kl_loss_list))
 
@@ -151,10 +156,6 @@ class VAE():
             x = img.to(self.device)
             decoder_out, encoder_out , _, _ = self.model.forward(x)
             return encoder_out
-            
-    
-
-
 
 
 if __name__ == '__main__':
