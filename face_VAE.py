@@ -11,25 +11,26 @@ import matplotlib.pyplot as plt
 import os
 import datetime
 import time
+import torchsummary
 
-batch_size = 128
-lr = 0.001
+batch_size = 64
+lr = 0.0005
 trainEpochs = 20
-showPointEpochs = 1
+showPointEpochs = 0
 testEpochs = 1
-r_loss_factor = 100
-z_dims = 2
+r_loss_factor = 10000
+z_dims = 200
 
 train_mode = True
 load_model = False
-save_model = False
+save_model = True
 date_time = datetime.datetime.now().strftime("%Y%m%d-%H-%M-%S")
-save_path = "./saved_VAE2_model/"+date_time+"/model/"
-load_path = "./saved_VAE2_model/"+"20210124-23-33-26"+"/model/"
+save_path = "./saved_face_VAE_model/"+date_time+"/model/"
+load_path = "./saved_face_VAE_model/"+"20210124-23-33-26"+"/model/"
 
-mnist_train = dset.MNIST("./", train=True, transform=transforms.ToTensor(),
-                        target_transform=None, download=True)
-train_loader = torch.utils.data.DataLoader(mnist_train, batch_size=batch_size, 
+celebA_train = dset.CelebA("./", split='train', transform=transforms.ToTensor(),
+                        target_transform=None, download=False)
+train_loader = torch.utils.data.DataLoader(celebA_train, batch_size=batch_size, 
                                             shuffle=True, num_workers=2, drop_last=True)
 
 class image_process():
@@ -45,7 +46,7 @@ class AutoEncoder_model(nn.Module):
         self.device = device
         self.z_dims = z_dims
         self.Encoder = nn.Sequential(
-            nn.Conv2d(1, 32, 3, stride=1, padding=1),
+            nn.Conv2d(3, 32, 3, stride=1, padding=1),
             nn.BatchNorm2d(32),
             nn.LeakyReLU(),
             nn.Conv2d(32, 64, 3, stride=2, padding=1),
@@ -59,10 +60,10 @@ class AutoEncoder_model(nn.Module):
             nn.LeakyReLU()
         )
         
-        self.mu = nn.Linear(1024, self.z_dims)
-        self.log_var = nn.Linear(1024, self.z_dims)
+        self.mu = nn.Linear(41216, self.z_dims)
+        self.log_var = nn.Linear(41216, self.z_dims)
         self.d_fc1 = nn.Sequential(
-            nn.Linear(self.z_dims, 1024),
+            nn.Linear(self.z_dims, 41216),
             nn.ReLU(),
         )
 
@@ -70,27 +71,29 @@ class AutoEncoder_model(nn.Module):
             nn.ConvTranspose2d(64, 64, 3, stride=2, padding=1),
             nn.BatchNorm2d(64),
             nn.LeakyReLU(),
-            nn.ConvTranspose2d(64, 64, 3, stride=2, padding=1, output_padding = 1),
+            nn.ConvTranspose2d(64, 64, 3, stride=2, padding=1, output_padding = 0),
             nn.BatchNorm2d(64),
             nn.LeakyReLU(),
             nn.ConvTranspose2d(64, 32, 3, stride=2, padding=1, output_padding = 1),
             nn.BatchNorm2d(32),
             nn.LeakyReLU(),
-            nn.ConvTranspose2d(32, 1, 3, stride=1, padding=1),
+            nn.ConvTranspose2d(32, 3, 3, stride=1, padding=1),
             nn.Sigmoid()
         )
 
 
     def forward(self, x):
         out = self.Encoder(x)
+        #print(out.size())
         out = out.view(out.size()[0], -1)
+        #print(out.size())
         mu_out = self.mu(out)
         log_var_out = torch.exp(0.5*self.log_var(out))
         epsilon = torch.randn_like(log_var_out).to(self.device)
         encoder_out = mu_out + log_var_out * epsilon
 
         decoder_input = self.d_fc1(encoder_out)
-        decoder_input = torch.reshape(decoder_input, shape=[-1,64, 4, 4]).to(self.device)
+        decoder_input = torch.reshape(decoder_input, shape=[-1,64, 28, 23]).to(self.device)
         decoder_out = self.Decoder(decoder_input)
         return decoder_out, encoder_out, mu_out, log_var_out
 
@@ -108,6 +111,7 @@ class VAE():
         self.batch_size = batch_size
         self.z_dims = z_dims
         self.model = AutoEncoder_model(device, z_dims).to(self.device)
+        torchsummary.summary(self.model, input_size = (3,218,178), device = 'cuda')
         self.r_loss_factor = r_loss_factor
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr = lr)
         self.load_model = load_model
@@ -117,31 +121,36 @@ class VAE():
             self.model.load_state_dict(torch.load(self.load_path+"state_dict_model.pt"))
 
     def loss_func(self, decoder_out, image, mu_out, log_var_out):
-            BCE = nn.functional.binary_cross_entropy(decoder_out, image, reduction='sum')
+            BCE = nn.functional.binary_cross_entropy(decoder_out, image, reduction='mean')
             KLD = -0.5 * torch.sum(1 + log_var_out - mu_out.pow(2) - log_var_out.exp())
 
-            return BCE + KLD, BCE, KLD
+            return self.r_loss_factor*BCE + KLD, BCE, KLD
 
     def train_model(self, train_loader):
+        print("ok?")
         self.model.train()
         r_loss_list = []
         kl_loss_list = []
         total_loss_list = []
+        i=0
         for image, label in train_loader:
             x = image.to(self.device)
             self.optimizer.zero_grad()
             decoder_out, encoder_out ,mu_out, log_var_out = self.model.forward(x)
 
             total_loss, BCE_loss, KLD_loss = self.loss_func(decoder_out, x, mu_out, log_var_out)
-            #print(total_loss) 27239
             total_loss.backward()
             self.optimizer.step()
+            i+=1
+            if i % 20 == 0:
+                print("i=",i)
+                print(np.mean(total_loss_list))
 
-            total_loss_list.append(total_loss)
-            r_loss_list.append(BCE_loss)
-            kl_loss_list.append(KLD_loss)
+            total_loss_list.append(total_loss.item())
+            r_loss_list.append(BCE_loss.item())
+            kl_loss_list.append(KLD_loss.item())
 
-        return torch.mean(torch.stack(total_loss_list)), torch.mean(torch.stack(r_loss_list)), torch.mean(torch.stack(kl_loss_list))
+        return np.mean(total_loss_list), np.mean(r_loss_list), np.mean(kl_loss_list)
 
     def get_result(self, img):
         self.model.eval()
@@ -162,6 +171,7 @@ if __name__ == '__main__':
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     VAE = VAE(device)
     image_process = image_process()
+    print(type(DataLoader))
 
     for epoch in range(trainEpochs):
         total_loss, r_loss, kl_loss = VAE.train_model(train_loader)
