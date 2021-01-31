@@ -12,6 +12,7 @@ import os
 import datetime
 import time
 import torchsummary
+from tqdm import tqdm
 
 batch_size = 64
 lr = 0.0005
@@ -132,8 +133,7 @@ class VAE():
         r_loss_list = []
         kl_loss_list = []
         total_loss_list = []
-        i=0
-        for image, label in train_loader:
+        for image, label in tqdm(train_loader):
             x = image.to(self.device)
             self.optimizer.zero_grad()
             decoder_out, encoder_out ,mu_out, log_var_out = self.model.forward(x)
@@ -141,10 +141,6 @@ class VAE():
             total_loss, BCE_loss, KLD_loss = self.loss_func(decoder_out, x, mu_out, log_var_out)
             total_loss.backward()
             self.optimizer.step()
-            i+=1
-            if i % 20 == 0:
-                print("i=",i)
-                print(np.mean(total_loss_list))
 
             total_loss_list.append(total_loss.item())
             r_loss_list.append(BCE_loss.item())
@@ -171,7 +167,6 @@ if __name__ == '__main__':
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     VAE = VAE(device)
     image_process = image_process()
-    print(type(DataLoader))
 
     for epoch in range(trainEpochs):
         total_loss, r_loss, kl_loss = VAE.train_model(train_loader)
