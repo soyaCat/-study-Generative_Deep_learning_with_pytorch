@@ -17,7 +17,7 @@ import time
 from torchinfo import summary
 from tqdm import tqdm
 
-batch_size = 512
+batch_size = 64
 discri_lr = 0.0008
 generator_lr = 0.0004
 gen_factor = 1
@@ -128,6 +128,7 @@ class GAN():
         self.model_generator = model_generator(device, self.z_dims, self.batch_size).to(self.device)
         self.optimizer_discri = torch.optim.Adam(self.model_discri.parameters(), lr = discri_lr)
         self.optimizer_generator = torch.optim.Adam(self.model_generator.parameters(), lr = generator_lr)
+        self.fixed_noise = torch.randn(self.batch_size, self.z_dims).to(self.device)
         self.loss = nn.BCELoss()
         summary(self.model_discri, input_size = (self.batch_size, 1, 28, 28), device = 'cuda')
         print(" ")
@@ -154,7 +155,7 @@ class GAN():
         total_loss+=loss.item()
         self.optimizer_discri.step()
 
-        vector = torch.randn(x.size()[0], self.z_dims).to(self.device)
+        vector = self.fixed_noise
         generator_out = self.model_generator.forward(vector)
         discri_out = self.model_discri.forward(generator_out)
         loss = self.loss(discri_out, fake)
@@ -176,7 +177,7 @@ class GAN():
         valid = torch.from_numpy(np.ones((self.batch_size,1))).to(self.device)
         valid = valid.to(dtype = torch.float32)
         x = img.to(self.device)
-        vector = torch.randn(x.size()[0], self.z_dims).to(self.device)
+        vector = self.fixed_noise
         generator_out = self.model_generator.forward(vector)
         discri_out = self.model_discri.forward(generator_out)
         loss = self.loss(discri_out, valid)
@@ -207,14 +208,14 @@ class GAN():
             for image in train_loader:
                 x = image.to(self.device)
                 discri_out = self.model_discri.forward(x)
-                vector = torch.randn(x.size()[0], self.z_dims).to(self.device)
+                vector = self.fixed_noise
                 Generator_out = self.model_generator.forward(vector)
 
     def get_result_gen_img(self):
         self.model_discri.eval()
         self.model_generator.eval()
         with torch.no_grad(): 
-            vector = torch.randn(512, self.z_dims).to(self.device)
+            vector = self.fixed_noise
             generator_out = self.model_generator.forward(vector)
         return generator_out[0]
 
@@ -237,11 +238,11 @@ if __name__ == "__main__":
         discri_loss, generator_loss = GAN.train_models(train_loader)
         print("discriminator_loss:", discri_loss)
         print("generator_loss:", generator_loss)
-        img = GAN.get_result_gen_img()
-        img = image_process.image_postprocess(img.cpu()).data.numpy()
-        plt.figure(figsize=(5,5))
-        plt.imshow(img)
-        plt.show()
+        #img = GAN.get_result_gen_img()
+        #img = image_process.image_postprocess(img.cpu()).data.numpy()
+        #plt.figure(figsize=(5,5))
+        #plt.imshow(img)
+        #plt.show()
 
     if save_model == True:
         os.makedirs(save_path)
