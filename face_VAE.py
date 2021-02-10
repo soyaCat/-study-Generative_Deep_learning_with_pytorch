@@ -295,9 +295,9 @@ if __name__ == '__main__':
     for epoch in range(generateEpochs):
         if(epoch == 0):
             label_list, Vector_list = Generate_from_point.get_label_and_vector_list(test_loader)
-        feature_vector = Generate_from_point.get_feature_vector(39, label_list, Vector_list)
+        feature_vector = Generate_from_point.get_feature_vector(15, label_list, Vector_list)
         print("selecting image from data sets....")
-        img, target_Vector = Generate_from_point.get_random_img(test_loader, 39)
+        img, target_Vector = Generate_from_point.get_random_img(test_loader, 15)
         for level in range(8):
             print("Vector adjustment level: ", level)
             target_Vector = target_Vector + level*feature_vector*0.2
