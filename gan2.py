@@ -17,21 +17,19 @@ import time
 from torchinfo import summary
 from tqdm import tqdm
 
-batch_size = 64
+batch_size = 512
 discri_lr = 0.0002
 generator_lr = 0.0002
 gen_factor = 1
-trainEpochs = 50
-showPointEpochs = 1
-testEpochs = 1
+trainEpochs = 50 #50
+testEpochs = 10
 z_dims = 50
 
-train_mode = True
 load_model = False
-save_model = True
+save_model = False
 date_time = datetime.datetime.now().strftime("%Y%m%d-%H-%M-%S")
 save_path = "./saved_gan_model/"+date_time+"/model/"
-load_path = "./saved_gan_model/"+"20210124-23-33-26"+"/model/"
+load_path = "./saved_gan_model/"+"20210212-19-34-24"+"/model/"
 
 data_path = "./camel_data/camel_data.npy"
 camel_train = np.load(data_path)
@@ -155,10 +153,9 @@ class GAN():
         discri_out_fake = self.model_discri.forward(generator_out)
         loss = torch.sum(self.loss(discri_out_fake, fake)) + torch.sum(self.loss(discri_out_real,valid))
         loss.backward(retain_graph=True)
-        total_loss=loss.item()
         self.optimizer_discri.step()
         
-        return total_loss
+        return loss.item()
 
     def train_generator(self, img):
         '''
@@ -206,8 +203,8 @@ class GAN():
         self.model_discri.eval()
         self.model_generator.eval()
         with torch.no_grad(): 
-            vector = self.fixed_noise
-            generator_out = self.model_generator.forward(vector)
+            noise_vector = nn.init.normal_(torch.Tensor(batch_size, z_dims), mean=0, std=0.1).to(self.device)
+            generator_out = self.model_generator.forward(noise_vector)
         return generator_out[0]
 
 
@@ -229,11 +226,11 @@ if __name__ == "__main__":
         discri_loss, generator_loss = GAN.train_models(train_loader)
         print("discriminator_loss:", discri_loss)
         print("generator_loss:", generator_loss)
-        #img = GAN.get_result_gen_img()
-        #img = image_process.image_postprocess(img.cpu()).data.numpy()
-        #plt.figure(figsize=(5,5))
-        #plt.imshow(img)
-        #plt.show()
+        img = GAN.get_result_gen_img()
+        img = image_process.image_postprocess(img.cpu()).data.numpy()
+        plt.figure(figsize=(5,5))
+        plt.imshow(img)
+        plt.show()
 
     if save_model == True:
         os.makedirs(save_path)
@@ -242,3 +239,10 @@ if __name__ == "__main__":
         torch.save(GAN.model_discri.state_dict(), save_path+"state_dict_model_discri.pt")
         torch.save(GAN.model_generator.state_dict(), save_path+"state_dict_model_generator.pt")
         print("Model saved..")
+
+    for epoch in range(testEpochs):
+        img = GAN.get_result_gen_img()
+        img = image_process.image_postprocess(img.cpu()).data.numpy()
+        plt.figure(figsize=(5,5))
+        plt.imshow(img)
+        plt.show()
