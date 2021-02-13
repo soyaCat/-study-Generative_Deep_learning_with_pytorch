@@ -228,9 +228,9 @@ if __name__ == "__main__":
         print("generator_loss:", generator_loss)
         img = GAN.get_result_gen_img()
         img = image_process.image_postprocess(img.cpu()).data.numpy()
-        plt.figure(figsize=(5,5))
-        plt.imshow(img)
-        plt.show()
+        #plt.figure(figsize=(5,5))
+        #plt.imshow(img)
+        #plt.show()
 
     if save_model == True:
         os.makedirs(save_path)
